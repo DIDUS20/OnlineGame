@@ -1,0 +1,165 @@
+﻿@model string
+@using Microsoft.AspNetCore.SignalR.Client
+@using Potatotype.GameServer.Assets;
+
+@{
+    ViewData["Title"] = "Game Page";
+}
+
+<h2 class="text-center">Welcome to the Game!</h2>
+<div class="text-center">
+    <canvas id="gameCanvas" width="800" height="600" style="border:solid;border-width:1px;"/>
+</div>
+
+<!-- SignalR connection js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+
+<script>
+(function () {
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const username = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model));
+
+    // Shared state: gracze i pociski trzymane lokalnie, jeden cykl renderowania
+    const state = {
+        players: [],
+        bullets: []
+    };
+
+    // Stałe wyglądu
+    const PLAYER_SIZE = { w: 50, h: 50 };
+    const BULLET_SIZE = { w: 18, h: 6 };
+    const PLAYER_COLOR = "red";
+    const BULLET_COLOR = "black";
+
+    // Rysuj jednego gracza (x,y traktowane jak top-left)
+    function drawPlayer(ctx, x, y, width, height, angle, color, name) {
+        ctx.save();
+        ctx.translate(x + width / 2, y + height / 2);
+
+        angle = angle % 360;
+        ctx.rotate(angle * (Math.PI / 180));
+
+        ctx.fillStyle = color;
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+
+        // lufa / kierunek
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, -5, width / 2, 10);
+
+        ctx.restore();
+
+        // imię nad graczem (nie obracamy tekstu)
+        ctx.fillStyle = "black";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(name || "", x + width / 2, y - 8);
+    }
+
+    // Rysuj pocisk (x,y traktowane jako top-left podobnie do gracza)
+    function drawBullet(ctx, x, y, angle, width, height, color) {
+        ctx.save();
+
+        // centrowanie podobnie jak dla gracza
+        ctx.translate(x + width / 2, y + height / 2);
+
+        angle = angle % 360;
+        ctx.rotate(angle * (Math.PI / 180));
+
+        ctx.fillStyle = color;
+        ctx.fillRect(-width / 2, -height / 2, width, height);
+
+        ctx.restore();
+    }
+
+    // Główny render loop - rysuje aktualny stan (players + bullets)
+    function renderLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // rysuj graczy
+        if (state.players && state.players.length) {
+            state.players.forEach(p => {
+                drawPlayer(ctx, p.x, p.y, PLAYER_SIZE.w, PLAYER_SIZE.h, p.rot || 0, PLAYER_COLOR, p.name);
+            });
+        }
+
+        // rysuj pociski
+        if (state.bullets && state.bullets.length) {
+            state.bullets.forEach(b => {
+                // oczekujemy obiektu { x, y, angle } lub { x, y, rot } — dostosuj jeśli różni się nazwa
+                const angle = (b.angle !== undefined) ? b.angle : (b.rot !== undefined ? b.rot : 0);
+                drawBullet(ctx, b.x, b.y, angle, BULLET_SIZE.w, BULLET_SIZE.h, BULLET_COLOR);
+            });
+        }
+
+        requestAnimationFrame(renderLoop);
+    }
+
+    // Uruchom pętlę renderującą
+    requestAnimationFrame(renderLoop);
+
+    const connection = new signalR.HubConnectionBuilder().withUrl('/inputHub')
+        .withAutomaticReconnect().build();
+
+    connection.on('GetPlayers', (players) => {
+        // aktualizujemy stan; renderLoop automatycznie narysuje zmiany
+        state.players = players || [];
+    });
+
+    connection.on('GetBulets', (bullets) => {
+        // aktualizujemy stan; renderLoop automatycznie narysuje zmiany
+        // poprawna nazwa "bullets" — serwer może wysyłać "bulets", dostosuj jeśli trzeba
+        state.bullets = bullets || [];
+        console.log('GetBulets', bullets);
+    });
+
+    connection.start()
+        .then(() => {
+            console.log('SignalR: połączono z /inputHub');
+
+            if (username) {
+                connection.invoke('AddPlayer', username)
+                    .catch(err => console.error('AddPlayer error', err.toString()));
+            }
+
+            const pressed = new Set();
+            const valid = new Set(["w","a","s","d","e","q","c"]);
+
+            document.addEventListener("keydown", async (e) => {
+                const key = e.key.toLowerCase();
+                if (!valid.has(key)) return;
+
+                if (pressed.has(key)) return;
+                pressed.add(key);
+
+                try {
+                    await connection.invoke("Input", `keydown:${key}`);
+                } catch (err) {
+                    console.error("SignalR error:", err);
+                }
+            });
+
+            document.addEventListener("keyup", async (e) => {
+                const key = e.key.toLowerCase();
+                if (!valid.has(key)) return;
+
+                if (!pressed.has(key)) return;
+                pressed.delete(key);
+
+                try {
+                    await connection.invoke("Input", `keyup:${key}`);
+                } catch (err) {
+                    console.error("SignalR error:", err);
+                }
+            });
+        })
+        .catch(err => {
+            console.error('SignalR: błąd połączenia', err.toString());
+        });
+
+    connection.onreconnected(() => {
+        console.log('SignalR: ponownie połączono');
+    });
+})();
+</script>

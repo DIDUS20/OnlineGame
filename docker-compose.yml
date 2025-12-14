@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7
+    container_name: redis_db
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - backend
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: Potatotype
+    ports:
+      - "8080:80"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - Redis__Connection=redis:6379
+      - ASPNETCORE_URLS=http://+:80
+      - ASPNETCORE_ENVIRONMENT=Development
+    restart: unless-stopped
+    networks:
+      - backend
+
+volumes:
+  redis_data:
+
+networks:
+  backend:

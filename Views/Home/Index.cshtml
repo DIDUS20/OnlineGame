@@ -1,0 +1,27 @@
+﻿@{
+    ViewData["Title"] = "Home";
+}
+<h2>Witaj w Potatotype</h2>
+
+@if (!string.IsNullOrEmpty(ViewContext.HttpContext.Request.Query["session"]))
+{
+    <p>Wykryto aktywną sesję. Przejdź do gry lub wyloguj się.</p>
+
+    <form method="get" asp-controller="Home" asp-action="Game" style="display:inline-block;margin-right:8px;">
+        <button type="submit">Play Game</button>
+    </form>
+
+    <form method="get" asp-controller="Home" asp-action="Logout" style="display:inline-block;">
+        <button type="submit">Logout</button>
+    </form>
+}
+else
+{
+    <p>Nie jesteś zalogowany. Zaloguj się lub zarejestruj nowe konto.</p>
+
+    <a class="btn" asp-controller="Home" asp-action="Login" style="margin-right:8px;">Login</a>
+    <a class="btn" asp-controller="Home" asp-action="SignUp">Sign Up</a>
+}
+
+<hr />
+<p>Uwaga: backend używa Redis do przechowywania użytkowników i sesji — upewnij się, że Redis jest uruchomiony lokalnie lub w konfiguracji kontenera.</p>
