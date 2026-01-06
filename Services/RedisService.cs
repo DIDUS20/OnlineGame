@@ -1,4 +1,5 @@
 ﻿using System;
+using Potatotype.GameServer.Assets;
 using StackExchange.Redis;
 
 namespace Potatotype.Services

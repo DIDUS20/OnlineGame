@@ -4,76 +4,58 @@ using System.Xml.Schema;
 
 namespace Potatotype.GameServer.Assets
 {
-    public class Player
+    public class Player : GameObject
     {
-        public string ConnectionId { get; }
-        public float X { get; private set; }
-        public float Y { get; private set; }
-        public float Rot { get; private set; }
-        public string Name { get; }
+        public string ConnectionId { get; private set; }
+        public string Name { get; private set; }
 
-        public Player(string connectionId, string name)
+        public int MaxHealth { get; private set; } = 100;
+        public int Health { get; private set; }
+
+        public int Demage { get; private set; } = 10;
+        public float BulletSpeed { get; private set; } = 500f;
+
+        public float Speed { get; private set; } = 5f;
+        public color Color { get; private set; } = color.Red;
+
+        public Player(string connectionId, string name, float x, float y, float rot = 0f, float width = 50f, float height = 50f, color Color = color.Red) 
+            :base (x,y,rot,width,height)
         {
             ConnectionId = connectionId;
-            X = 100;
-            Y = 100;
-            Rot = 0;
             Name = name;
+            Health = MaxHealth;
+            this.Color = Color;
         }
 
-        public void UpdatePosition(float deltaX, float deltaY, float deltaRot)
+        public int Score { get; private set; } = 0;
+        public void IncScore(int points) => Score += points;
+        public void DecScore(int points) => Score -= points;
+
+
+        public void GetDemage(int demage)
         {
-            X = Math.Clamp(X + deltaX, 0f, 800f - 50f);
-            Y = Math.Clamp(Y + deltaY, 0f, 600f - 50f);
-            
-            if (Rot + deltaRot >= 360f)
-                Rot -= 360f;
-            else if (Rot + deltaRot <= 0f)
-                Rot += 360f;
-            Rot = Math.Clamp(Rot + deltaRot, 0f, 360f);
-
+            Health -= demage;
+            if (Health <= 0) Health = 0;
+            else if (Health > MaxHealth)    Health = MaxHealth;
         }
-
-        public Player(string connectionId, string name, float x, float y)
+        public void Heal(int heal)
         {
-            ConnectionId = connectionId;
-            X = x;
-            Y = y;
-            Name = name;
+            Health += heal;
+            if (Health <= 0) Health = 0;
+            else if (Health > MaxHealth) Health = MaxHealth;
         }
+
+        public void RestoreHealth() => Health = MaxHealth;
     }
 
-    public class Bullet
+    public enum color
     {
-
-        private readonly string Id = Guid.NewGuid().ToString();
-        public string GetId => Id;
-        public float X { get; private set; }
-        public float Y { get; private set; }
-        public float Rot { get; private set; }
-        private float Speed = 20f; // pixels per second
-        public string OwnerConnectionId { get; private set; }
-
-        private readonly TimeSpan LifeTime = TimeSpan.FromSeconds(4);
-        private DateTime creationTime { get; set; }
-
-        public Bullet(float x, float y, float rot, string ownerId)
-        {
-            X = x + 50;
-            Y = y + 25;
-            Rot = rot;
-            OwnerConnectionId = ownerId;
-            creationTime = DateTime.Now;
-        }
-
-        public void UpdatePosition(float deltaSeconds)
-        {
-            float rad = Rot * (float)(Math.PI / 180.0);
-            X += MathF.Cos(rad) * Speed * deltaSeconds;
-            Y += MathF.Sin(rad) * Speed * deltaSeconds;
-        }
-
-        public bool isAlive() => (DateTime.Now - creationTime) < LifeTime;
-        
+        Red,
+        Blue,
+        Green,
+        Yellow,
+        Purple,
+        Orange,
+        Black
     }
 }

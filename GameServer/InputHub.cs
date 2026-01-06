@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.SignalR;
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Potatotype.GameServer.Assets;
 using Potatotype.Services;
 
@@ -19,7 +20,7 @@ namespace Potatotype.GameServer
         {
             if (input is not null)
             {
-                // _logger.LogInformation($"Received input from {Context.ConnectionId}: {input}");
+                //_logger.LogInformation($"Received input from {Context.ConnectionId}: {input}");
                 await _server.AddInput(Context.ConnectionId, input);
             }
         }
@@ -32,7 +33,6 @@ namespace Potatotype.GameServer
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            // Usuń gracza i jego wejścia z serwera
             await _server.RemovePlayer(Context.ConnectionId);
             _logger.LogInformation("Connection {ConnectionId} disconnected. Player removed.", Context.ConnectionId);
             await base.OnDisconnectedAsync(exception);

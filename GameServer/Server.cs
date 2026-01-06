@@ -1,60 +1,57 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Potatotype.GameServer.Assets;
+using Potatotype.Services;
+using StackExchange.Redis;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 
 namespace Potatotype.GameServer
 {
-    public class Input
-    {
-        public float x { get; private set; }
-        public float y { get; private set; }
-        public float rot { get; private set; }
-        public bool Shoot => Keys.Contains("c");
-        public DateTime LastShootTime { get; set; } = DateTime.MinValue;
-        public TimeSpan FireRate { get; set; } = TimeSpan.FromMilliseconds(500);
-
-        public HashSet<string> Keys { get; } = new();
-
-        public void Recalculate()
-        {
-            x = 0;
-            y = 0;
-            rot = 0;
-
-            const float speed = 5f;
-            const float rot_speed = 5f;
-
-            if (Keys.Contains("a")) x -= speed;
-            if (Keys.Contains("d")) x += speed;
-            if (Keys.Contains("w")) y -= speed;
-            if (Keys.Contains("s")) y += speed;
-
-            if (Keys.Contains("q")) rot -= rot_speed; 
-            if (Keys.Contains("e")) rot += rot_speed; 
-        }
-    }
-
     public class Server
     {
         private readonly World _world = new();
-
+        
         private readonly ConcurrentDictionary<string, Input> _inputs = new();
 
         private readonly ILogger<Server> _logger;
         private readonly IHubContext<InputHub> _hubContext;
+        private readonly SaveService _saveService;
+        
 
         private const int TICKS_PER_SECOND = 60;
         private const int MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 
+        private int PointsOnKill = 10;
+
+        // Healbox timer
+        private int HealBoxCountDown = 0;
+        private Random rng = new Random();
+
         public Server(ILogger<Server> logger, IHubContext<InputHub> hubContext)
         {
+            _saveService = new SaveService();
             _logger = logger;
             _hubContext = hubContext;
 
             StartLoop();
         }
-        public Task<bool> AddPlayer(string connectionId, string name)
-            => Task.FromResult(_world.AddPlayer(connectionId, name));
+        public async Task<bool> AddPlayer(string connectionId, string name)
+        {
+            try
+            {
+                var saved = await _saveService.GetSavedPlayer(connectionId, name);
+                if (saved is not null)
+                {
+                    return _world.AddPlayer(saved);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load saved player {Name}, creating new.", name);
+            }
+
+            return _world.AddPlayer(connectionId, name);
+        }
         public Task<bool> AddBullet(string ownerConnectionId)
             => Task.FromResult(_world.AddBullet(ownerConnectionId));
         public Task AddInput(string connectionId, string input)
@@ -87,11 +84,15 @@ namespace Potatotype.GameServer
                 case "keyup":
                     inObj.Keys.Remove(key);
                     break;
+                case "rot":
+                    inObj.Rotation(key);
+                    //_logger.LogInformation($"Rotation : {key}");
+                    break;
                 default:
                     return Task.CompletedTask;
             }
 
-            inObj.Recalculate();
+            inObj.Recalculate(_world.GetPlayer(connectionId)?.Speed ?? 5f);
             _inputs[connectionId] = inObj;
 
             return Task.CompletedTask;
@@ -104,12 +105,33 @@ namespace Potatotype.GameServer
         public Task RemovePlayer(string connectionId)
         {
             _inputs.TryRemove(connectionId, out _);
+            Player? playerSave = _world.GetPlayer(connectionId);
+            
+            if (playerSave is not null)
+                _saveService.SavePlayer(playerSave);
+            
             _world.RemovePlayer(connectionId);
             return Task.CompletedTask;
         }
 
-        public IReadOnlyDictionary<string, Input> GetInputs()
-            => _inputs;
+        public Task PlayerDeath(string connectionId, string killerName, int? killerScore)
+        {
+            Player? backup = _world.GetPlayer(connectionId) ?? null;
+            if (backup is not null && !string.IsNullOrEmpty(connectionId))
+            {
+                _world.GetPlayer(connectionId)?.RestoreHealth();
+                _world.GetPlayer(connectionId)?.NewPosition();
+                RemovePlayer(connectionId);
+                AddPlayer(connectionId, backup.Name);
+            }
+
+            if (!string.IsNullOrEmpty(killerName) && killerScore is not null)
+                _saveService.SaveHighScore(killerName, (int)killerScore);
+
+            return Task.CompletedTask;
+        }
+
+        public IReadOnlyDictionary<string, Input> GetInputs() => _inputs;
 
         private void StartLoop()
         {
@@ -121,7 +143,7 @@ namespace Potatotype.GameServer
                     var now = DateTime.UtcNow;
                     float deltaSeconds = MS_PER_TICK / 1000f;
 
-                    foreach (var kv in _inputs)
+                    foreach (var kv in _inputs) // Input Handle
                     {
                         var connId = kv.Key;
                         var input = kv.Value;
@@ -133,26 +155,65 @@ namespace Potatotype.GameServer
                             input.LastShootTime = now;
                         }
                     }
-                    
-                    foreach (var bullet in _world.GetBullets())
+
+                    foreach (var player in _world.GetPlayers()) 
                     {
-                        if(!bullet.isAlive())
+                        _world.Move(player.ConnectionId, player.Speed * deltaSeconds, 0, 0);
+                        foreach (var bullet in _world.GetBullets())
                         {
-                            _world.RemoveBullet(bullet.GetId);
-                            continue;
+                            if(!bullet.isAlive()) // Bullet Handle
+                            {
+                                _world.RemoveBullet(bullet.Id);
+                                continue;
+                            }
+                            _world.Move(bullet.Id, bullet.Speed * deltaSeconds, 1, 1);
+
+                            if (bullet.OwnerConnectionId == player.ConnectionId) // Collision Handle
+                                continue;
+                            bool isColliding = player.Hitbox.IntersectsWith(bullet.Hitbox);
+                            if (isColliding)
+                            {
+                                _world.RemoveBullet(bullet.Id);
+                                player.GetDemage(_world.GetPlayer(bullet.OwnerConnectionId)?.Demage ?? 0);
+                            }
+
+                            if (player.Health <= 0) // Player Dead
+                            {
+                                string killerName =
+                                    _world.GetPlayer(bullet.OwnerConnectionId)?.Name ?? "Unknown";
+
+                                _logger.LogInformation(
+                                    $"Player {player.Name} killed by {killerName}");
+                                _world.GetPlayer(bullet.OwnerConnectionId)?.IncScore(PointsOnKill);
+
+                                await PlayerDeath(player.ConnectionId, killerName, _world.GetPlayer(bullet.OwnerConnectionId)?.Score);
+                            }
                         }
 
-                        bullet.UpdatePosition(deltaSeconds);
+                        foreach (var hbox in _world.GetHealthBoxes())
+                        {
+                            if (player.Hitbox.IntersectsWith(hbox.Hitbox)){
+                                player.Heal(hbox.Heal);
+                                await _world.RemoveHealBox(hbox.Id);
+                            }       
+                        }
+                    }
+
+                    HealBoxCountDown++;
+                    if(HealBoxCountDown >= 1000) { 
+                        await _world.AddHealBox(rng.Next(50,750),rng.Next(50,550), 20);
+                        HealBoxCountDown = 0;
                     }
 
                     try
                     {
                         await _hubContext.Clients.All.SendAsync("GetPlayers", _world.GetPlayers());
                         await _hubContext.Clients.All.SendAsync("GetBulets", _world.GetBullets());
+                        await _hubContext.Clients.All.SendAsync("GetHealBoxes", _world.GetHealthBoxes());
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error while sending players.");
+                        _logger.LogError(ex, "Error while sending.");
                     }
 
                     await Task.Delay(MS_PER_TICK);

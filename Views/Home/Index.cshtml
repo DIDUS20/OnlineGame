@@ -1,5 +1,7 @@
 ﻿@{
     ViewData["Title"] = "Home";
+    @model List<ScoreModel>
+    
 }
 <h2>Witaj w Potatotype</h2>
 
@@ -23,5 +25,51 @@ else
     <a class="btn" asp-controller="Home" asp-action="SignUp">Sign Up</a>
 }
 
+<!-- Instrukcje sterowania -->
+<div class="card mb-3" style="max-width:680px;">
+    <div class="card-header">Instrukcje sterowania</div>    
+    <div class="card-body">
+        <p>Podstawowe sterowanie gry:</p>
+        <ul>
+            <li><strong>Poruszanie:</strong> <code>W</code> / <code>A</code> / <code>S</code> / <code>D</code></li>
+            <li><strong>Strzał:</strong> C </li>
+            <li><strong>Obróć:</strong> mysz </li>
+            <li><strong>Respawn:</strong> automatyczny po śmierci w innej lokalizacji</li>
+        </ul>
+        <p class="mb-0">Punkty są dodawane do bazy danych po śmierci gracza, 
+            na tablicy znajdują się najlepsze wyniki graczy, 
+            za każdą eliminacje gracz otrzymuje 10 pkt.
+            Gracz może podnosić apteczki (zielone kwadraty)
+            pojawiające się co jakiś czas w losowych miejscach,
+            leczą one 20 hp.
+        </p>
+    </div>
+</div>
+
 <hr />
-<p>Uwaga: backend używa Redis do przechowywania użytkowników i sesji — upewnij się, że Redis jest uruchomiony lokalnie lub w konfiguracji kontenera.</p>
+
+<h2>🏆 TOP 10 GRACZY</h2>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Gracz</th>
+            <th>Punkty</th>
+        </tr>
+    </thead>
+    <tbody>
+        @for (int i = 0; i < Model.Count; i++)
+        {
+            <tr>
+                <td>@(i + 1)</td>
+                <td>@Model[i].Name</td>
+                <td>@Model[i].Score</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<script>
+    
+</script>

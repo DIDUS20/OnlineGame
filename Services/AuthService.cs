@@ -8,15 +8,12 @@ public class AuthService
     private readonly IDatabase _redis;
     private readonly IPasswordHasher<string> _hasher;
 
-    // Konstruktor akceptuje zależności (ułatwia testy / DI).
-    // Jeśli nie podano IDatabase, używa RedisConnectorHelper (dotychczasowe zachowanie).
     public AuthService(IDatabase? redis = null, IPasswordHasher<string>? hasher = null)
     {
         _redis = redis ?? RedisConnectorHelper.Connection.GetDatabase();
         _hasher = hasher ?? new PasswordHasher<string>();
     }
 
-    // Rejestracja: przyjmuje surowe hasło, normalizuje username, zapisuje hash.
     public async Task<bool> Register(string username, string password)
     {
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
@@ -28,7 +25,6 @@ public class AuthService
         if (await _redis.KeyExistsAsync(userKey))
             return false;
 
-        // Tworzymy hash przy użyciu PasswordHasher (można zmienić na BCrypt jeśli wolisz)
         var hash = _hasher.HashPassword(username, password);
 
         await _redis.HashSetAsync(userKey, new HashEntry[]
@@ -40,8 +36,6 @@ public class AuthService
         return true;
     }
 
-    // Logowanie: przyjmuje surowe hasło, pobiera hash i weryfikuje.
-    // Obsługuje również istniejące hash'e BCrypt (jeżeli zaczynają się od "$2").
     public async Task<string?> Login(string username, string password)
     {
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
@@ -62,7 +56,6 @@ public class AuthService
 
         bool verified = false;
 
-        // Jeśli hash wygląda jak BCrypt (np. zaczyna się od $2), użyj BCrypt
         if (storedHash.StartsWith("$2"))
         {
             try
@@ -76,7 +69,6 @@ public class AuthService
         }
         else
         {
-            // W przeciwnym razie użyj PasswordHasher
             var result = _hasher.VerifyHashedPassword(username, storedHash, password);
             verified = result == PasswordVerificationResult.Success || result == PasswordVerificationResult.SuccessRehashNeeded;
         }
@@ -110,5 +102,6 @@ public class AuthService
             return;
 
         await _redis.KeyDeleteAsync($"session:{token}");
+        
     }
 }

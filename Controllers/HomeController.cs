@@ -11,7 +11,8 @@ namespace Potatotype.Controllers
     public class HomeController : Controller
     {
         private readonly ILogger<HomeController> _logger;
-        private readonly AuthService _auth = new AuthService();
+        private readonly AuthService _auth = new();
+        private readonly SaveService _score = new();
 
         public HomeController(ILogger<HomeController> logger) => _logger = logger;
 
@@ -86,7 +87,6 @@ namespace Potatotype.Controllers
                 return RedirectToAction("Login");
 
             var username = await _auth.GetUserFromToken(token);
-
             if (username == null)
                 return RedirectToAction("Login");
 
@@ -105,7 +105,10 @@ namespace Potatotype.Controllers
             return RedirectToAction("Login");
         }
 
-        public IActionResult Index() => View();
+        public IActionResult Index()
+        {
+            return View(_score.GetTop10());
+        }
         public IActionResult Privacy() => View();
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public IActionResult Error() => View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });

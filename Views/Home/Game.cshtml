@@ -7,9 +7,30 @@
 }
 
 <h2 class="text-center">Welcome to the Game!</h2>
-<div class="text-center">
-    <canvas id="gameCanvas" width="800" height="600" style="border:solid;border-width:1px;"/>
+<div style="display:flex; justify-content:center; gap:20px; margin-top:20px;">
+
+    <canvas id="gameCanvas" width="800" height="600"
+            style="border:1px solid black;"></canvas>
+    <!-- Player card -->
+    <div id="playerCard"
+         style="
+            width:220px;
+            border:1px solid #ccc;
+            border-radius:8px;
+            padding:12px;
+            font-family:Arial;
+            background:#f9f9f9;
+         ">
+        <h3 style="margin-top:0;">Gracz</h3>
+        <div><b>Nick:</b> <span id="pc-name">-</span></div>
+        <div><b>X:</b> <span id="pc-x">-</span></div>
+        <div><b>Y:</b> <span id="pc-y">-</span></div>
+        <div><b>Rot:</b> <span id="pc-rot">-</span>°</div>
+        <div><b>HP:</b> <span id="pc-hp">-</span></div>
+        <div><b>Score:</b> <span id="pc-score">-</span></div>
+    </div>
 </div>
+
 
 <!-- SignalR connection js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
@@ -21,98 +42,186 @@
 
     const username = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model));
 
-    // Shared state: gracze i pociski trzymane lokalnie, jeden cykl renderowania
     const state = {
         players: [],
-        bullets: []
+        bullets: [],
+        hboxes: []
     };
 
-    // Stałe wyglądu
-    const PLAYER_SIZE = { w: 50, h: 50 };
-    const BULLET_SIZE = { w: 18, h: 6 };
-    const PLAYER_COLOR = "red";
-    const BULLET_COLOR = "black";
+    const PLAYER_COLOR_MAP = [
+        'red',    // Red
+        'blue',   // Blue
+        'green',  // Green
+        'yellow', // Yellow
+        'purple', // Purple
+        'orange', // Orange
+        'black'   // Black
+    ];
 
-    // Rysuj jednego gracza (x,y traktowane jak top-left)
+
+    let lastSentAngle = 0.0;
+    document.addEventListener( "mousemove", async (e) => { // mousemove
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const me = state.players.find(p => p.name === username);
+        if (!me) return;
+
+        const px = (me.x) + (me.width) / 2;
+        const py = (me.y) + (me.height) / 2;
+
+        let angle = Math.atan2(mouseY - py, mouseX - px) * 180 / Math.PI;
+        if (angle < 0) angle += 360;
+        if (lastSentAngle !== null && Math.abs(angle - lastSentAngle) < 0.5)
+            return;
+
+        lastSentAngle = angle;
+        angle = angle.toFixed(2);
+        try {
+            await connection.invoke("Input", `rot:${angle}`);
+        } catch {}
+    });
+
+    function resolveColor(colorVal, fallback) {
+        if (colorVal === undefined || colorVal === null) return fallback || 'black';
+        if (typeof colorVal === 'number') {
+            return PLAYER_COLOR_MAP[colorVal] || fallback || 'black';
+        }
+        if (typeof colorVal === 'string') {
+            const lower = colorVal.toLowerCase();
+            return lower || fallback || 'black';
+        }
+        if (typeof colorVal === 'object' && colorVal !== null) {
+            if (colorVal.Name) return colorVal.Name.toLowerCase();
+        }
+        return fallback || 'black';
+    }
+
     function drawPlayer(ctx, x, y, width, height, angle, color, name) {
         ctx.save();
-        ctx.translate(x + width / 2, y + height / 2);
+        ctx.translate(x + width /2, y + height /2); 
 
-        angle = angle % 360;
-        ctx.rotate(angle * (Math.PI / 180));
+        angle = (angle ||0) %360;
+        ctx.rotate(angle * (Math.PI /180));
 
         ctx.fillStyle = color;
-        ctx.fillRect(-width / 2, -height / 2, width, height);
-
-        // lufa / kierunek
+        ctx.fillRect(-width /2, -height /2, width, height);
+            
         ctx.fillStyle = "black";
-        ctx.fillRect(0, -5, width / 2, 10);
-
+        ctx.fillRect(0, -5, width /2,10);
         ctx.restore();
 
-        // imię nad graczem (nie obracamy tekstu)
         ctx.fillStyle = "black";
         ctx.font = "14px Arial";
         ctx.textAlign = "center";
-        ctx.fillText(name || "", x + width / 2, y - 8);
+        ctx.fillText(name || "", x + width /2, y -8);
     }
 
-    // Rysuj pocisk (x,y traktowane jako top-left podobnie do gracza)
     function drawBullet(ctx, x, y, angle, width, height, color) {
         ctx.save();
 
-        // centrowanie podobnie jak dla gracza
-        ctx.translate(x + width / 2, y + height / 2);
+        ctx.translate(x + width /2, y + height /2);
 
-        angle = angle % 360;
-        ctx.rotate(angle * (Math.PI / 180));
+        angle = (angle ||0) %360;
+        ctx.rotate(angle * (Math.PI /180));
 
         ctx.fillStyle = color;
-        ctx.fillRect(-width / 2, -height / 2, width, height);
+        ctx.fillRect(-width /2, -height /2, width, height);
 
         ctx.restore();
     }
 
-    // Główny render loop - rysuje aktualny stan (players + bullets)
-    function renderLoop() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    function drawHealBox(ctx, x, y, angle, width, height, color = 'green'){
+            ctx.save();
 
-        // rysuj graczy
+            ctx.translate(x + width /2, y + height /2);
+
+            angle = (angle ||0) %360;
+            ctx.rotate(angle * (Math.PI /180));
+
+            ctx.fillStyle = color;
+            ctx.fillRect(-width /2, -height /2, width, height);
+
+            ctx.restore();
+    }
+
+    function renderLoop() {
+        ctx.clearRect(0,0, canvas.width, canvas.height);
+
         if (state.players && state.players.length) {
             state.players.forEach(p => {
-                drawPlayer(ctx, p.x, p.y, PLAYER_SIZE.w, PLAYER_SIZE.h, p.rot || 0, PLAYER_COLOR, p.name);
+                const w = p.width;
+                const h = p.height;
+                const col = resolveColor(p.color, 'blue');
+                const ang = p.rot;
+                const x = p.x;
+                const y = p.y;
+                const name = p.name ?? '';
+                drawPlayer(ctx, x, y, w, h, ang, col, name);
             });
         }
 
-        // rysuj pociski
         if (state.bullets && state.bullets.length) {
             state.bullets.forEach(b => {
-                // oczekujemy obiektu { x, y, angle } lub { x, y, rot } — dostosuj jeśli różni się nazwa
-                const angle = (b.angle !== undefined) ? b.angle : (b.rot !== undefined ? b.rot : 0);
-                drawBullet(ctx, b.x, b.y, angle, BULLET_SIZE.w, BULLET_SIZE.h, BULLET_COLOR);
+                const angle = b.rot;
+                const w = b.width;
+                const h = b.height;
+                const x = (b.x);
+                const y = (b.y);
+                const color = resolveColor(b.color, 'black');
+                drawBullet(ctx, x, y, angle, w, h, color);
             });
         }
 
+        if (state.hboxes && state.hboxes.length) {
+            state.hboxes.forEach(b => {
+                const angle = b.rot;
+                const w = b.width;
+                const h = b.height;
+                const x = (b.x);
+                const y = (b.y);
+                const color = resolveColor(b.color, 'green');
+                drawHealBox(ctx, x, y, angle, w, h, color);
+            });
+        }
+
+        updatePlayerCard();
         requestAnimationFrame(renderLoop);
     }
 
-    // Uruchom pętlę renderującą
+    function updatePlayerCard() {
+        const me = state.players.find(p => p.name === username);
+        if (!me) return;
+        // console.log(me);
+        document.getElementById("pc-name").textContent = me.name ?? "-";
+        document.getElementById("pc-x").textContent = Math.round(me.x ?? 0);
+        document.getElementById("pc-y").textContent = Math.round(me.y ?? 0);
+        document.getElementById("pc-rot").textContent = Math.round(me.rot ?? 0);
+        document.getElementById("pc-score").textContent = me.score ?? 0; 
+        document.getElementById("pc-hp").textContent = (me.health ?? 100)+"/"+(me.maxHealth ?? 100);
+    }
+
+
+    // Start rendering loop
     requestAnimationFrame(renderLoop);
 
     const connection = new signalR.HubConnectionBuilder().withUrl('/inputHub')
         .withAutomaticReconnect().build();
 
     connection.on('GetPlayers', (players) => {
-        // aktualizujemy stan; renderLoop automatycznie narysuje zmiany
         state.players = players || [];
     });
 
     connection.on('GetBulets', (bullets) => {
-        // aktualizujemy stan; renderLoop automatycznie narysuje zmiany
-        // poprawna nazwa "bullets" — serwer może wysyłać "bulets", dostosuj jeśli trzeba
         state.bullets = bullets || [];
-        console.log('GetBulets', bullets);
     });
+
+    connection.on('GetHealBoxes', (hboxes) => {
+        state.hboxes = hboxes || [];
+        console.log(hboxes);
+    });
+
 
     connection.start()
         .then(() => {
@@ -126,33 +235,33 @@
             const pressed = new Set();
             const valid = new Set(["w","a","s","d","e","q","c"]);
 
-            document.addEventListener("keydown", async (e) => {
-                const key = e.key.toLowerCase();
-                if (!valid.has(key)) return;
+                document.addEventListener("keydown", async (e) => {
+                    const key = e.key.toLowerCase();
+                    if (!valid.has(key)) return;
 
-                if (pressed.has(key)) return;
-                pressed.add(key);
+                    if (pressed.has(key)) return;
+                    pressed.add(key);
 
-                try {
-                    await connection.invoke("Input", `keydown:${key}`);
-                } catch (err) {
-                    console.error("SignalR error:", err);
-                }
-            });
+                    try {
+                        await connection.invoke("Input", `keydown:${key}`);
+                    } catch (err) {
+                        console.error("SignalR error:", err);
+                    }
+                });
 
-            document.addEventListener("keyup", async (e) => {
-                const key = e.key.toLowerCase();
-                if (!valid.has(key)) return;
+                document.addEventListener("keyup", async (e) => {
+                    const key = e.key.toLowerCase();
+                    if (!valid.has(key)) return;
 
-                if (!pressed.has(key)) return;
-                pressed.delete(key);
+                    if (!pressed.has(key)) return;
+                    pressed.delete(key);
 
-                try {
-                    await connection.invoke("Input", `keyup:${key}`);
-                } catch (err) {
-                    console.error("SignalR error:", err);
-                }
-            });
+                    try {
+                        await connection.invoke("Input", `keyup:${key}`);
+                    } catch (err) {
+                        console.error("SignalR error:", err);
+                    }
+                });
         })
         .catch(err => {
             console.error('SignalR: błąd połączenia', err.toString());

@@ -16,6 +16,7 @@ namespace Potatotype
 
             builder.Services.AddSession(options =>
             {
+                options.Cookie.SameSite = SameSiteMode.Lax;
                 options.IdleTimeout = TimeSpan.FromHours(1);
                 options.Cookie.HttpOnly = true;
                 options.Cookie.IsEssential = true;
