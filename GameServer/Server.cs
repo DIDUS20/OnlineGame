@@ -1,9 +1,7 @@
 ﻿using Microsoft.AspNetCore.SignalR;
 using Potatotype.GameServer.Assets;
 using Potatotype.Services;
-using StackExchange.Redis;
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
 
 namespace Potatotype.GameServer
 {
@@ -43,6 +41,11 @@ namespace Potatotype.GameServer
                 if (saved is not null)
                 {
                     return _world.AddPlayer(saved);
+                }else
+                {
+                    Player newPlayerSave = new Player(connectionId, name, 0f, 0f, Color:color.Blue);
+                    await _saveService.SavePlayer(newPlayerSave);
+                    return _world.AddPlayer(_saveService.GetSavedPlayer(connectionId, name).Result);
                 }
             }
             catch (Exception ex)
@@ -114,21 +117,20 @@ namespace Potatotype.GameServer
             return Task.CompletedTask;
         }
 
-        public Task PlayerDeath(string connectionId, string killerName, int? killerScore)
+        public async Task PlayerDeath(string connectionId, string killerName, int? killerScore)
         {
             Player? backup = _world.GetPlayer(connectionId) ?? null;
             if (backup is not null && !string.IsNullOrEmpty(connectionId))
             {
                 _world.GetPlayer(connectionId)?.RestoreHealth();
                 _world.GetPlayer(connectionId)?.NewPosition();
-                RemovePlayer(connectionId);
-                AddPlayer(connectionId, backup.Name);
+                await RemovePlayer(connectionId);
+                await AddPlayer(connectionId, backup.Name);
             }
 
             if (!string.IsNullOrEmpty(killerName) && killerScore is not null)
                 _saveService.SaveHighScore(killerName, (int)killerScore);
 
-            return Task.CompletedTask;
         }
 
         public IReadOnlyDictionary<string, Input> GetInputs() => _inputs;
